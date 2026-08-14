@@ -11,7 +11,8 @@ The official web API only offers `workspace.archiveSession` (hide); there is no
 ## Install
 
 ```sh
-dsh plugin --profile web add github:fountunt/dsh-session-cleaner
+dsh plugin --profile web add dsh-session-cleaner            # from npm
+dsh plugin --profile web add github:fountunt/dsh-session-cleaner   # from git
 
 # or from a local checkout
 dsh plugin --profile web add file:/path/to/dsh-session-cleaner

@@ -7,7 +7,8 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add github:fountunt/dsh-session-cleaner
+dsh plugin --profile web add dsh-session-cleaner            # 从 npm
+dsh plugin --profile web add github:fountunt/dsh-session-cleaner   # 从 git
 
 # 或使用本地 checkout
 dsh plugin --profile web add file:/path/to/dsh-session-cleaner

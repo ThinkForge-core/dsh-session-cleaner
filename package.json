@@ -12,6 +12,7 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
+    "README.zh.md",
     "LICENSE"
   ],
   "scripts": {
@@ -26,6 +27,14 @@
     "cleanup"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fountunt/dsh-session-cleaner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fountunt/dsh-session-cleaner/issues"
+  },
+  "homepage": "https://github.com/fountunt/dsh-session-cleaner",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
   },
