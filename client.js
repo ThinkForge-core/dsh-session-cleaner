@@ -1,6 +1,5 @@
-// dsh-session-cleaner client half:
-//  1. a delete button in the conversation header actions slot (v0.2.0);
-//  2. a "delete" item appended to the sidebar session row ⋮ menu (v0.2.1).
+// dsh-session-cleaner client half: a "delete" item appended to the sidebar
+// session row ⋮ menu (v1.0.0; the v0.2.0 header button was removed).
 // Loaded by the web app's module loader as /plugins/dsh-session-cleaner/client.js.
 //
 // The row ⋮ menu is rendered by the upstream ui-workspace component with a
@@ -8,7 +7,8 @@
 // opened menu in the DOM: it watches for [role="menu"], pairs it with its
 // session row ([role="treeitem"], with a click-capture fallback), resolves the
 // session id by matching the row title against the session list, and appends a
-// danger-styled delete item. Ambiguous titles skip injection for safety.
+// danger-styled delete item. Ambiguous titles skip injection for safety;
+// running sessions get a disabled item.
 window.__ModuleLoader__.load({
 	id: "dsh-session-cleaner",
 	factory: (require) => {
@@ -21,19 +21,17 @@ window.__ModuleLoader__.load({
 		const zh = {
 			delete: "删除此会话",
 			confirm: "确定删除此会话？删除后不可恢复。",
-			deleting: "删除中…",
 			failed: "删除失败：",
 			running: "会话正在运行，无法删除"
 		};
 		const en = {
 			delete: "Delete session",
 			confirm: "Delete this session? This cannot be undone.",
-			deleting: "Deleting…",
 			failed: "Delete failed: ",
 			running: "Session is running and cannot be deleted"
 		};
 
-		const inject = ["slots", "sessions", "locale"];
+		const inject = ["sessions", "locale"];
 
 		const log = (...args) => {
 			try {
@@ -42,45 +40,6 @@ window.__ModuleLoader__.load({
 				/* console unavailable */
 			}
 		};
-
-		// ---------------------------------------------------------------- header button
-
-		/** Header action button (v0.2.0). */
-		function DeleteSessionAction({ sessionId, useSessions, t, onDeleted }) {
-			const running = useSessions((state) => state.byId[sessionId]?.running === true);
-			const [busy, setBusy] = react.useState(false);
-			const handle = react.useCallback(async () => {
-				if (busy || running) return;
-				if (!window.confirm(t("confirm"))) return;
-				setBusy(true);
-				try {
-					await deleteSessionViaApi(sessionId);
-					if (typeof onDeleted === "function") await onDeleted(sessionId);
-				} catch (error) {
-					window.alert(t("failed") + (error instanceof Error ? error.message : String(error)));
-				} finally {
-					setBusy(false);
-				}
-			}, [busy, running, sessionId, t, onDeleted]);
-			return react.createElement("button", {
-				type: "button",
-				className: "dsh-session-cleaner-delete",
-				onClick: handle,
-				disabled: busy || running,
-				title: running ? t("running") : t("delete"),
-				"aria-label": t("delete"),
-				style: {
-					background: "none",
-					border: "none",
-					padding: "2px 6px",
-					cursor: running || busy ? "default" : "pointer",
-					fontSize: "14px",
-					lineHeight: "1",
-					opacity: running ? 0.4 : 0.85,
-					borderRadius: "4px"
-				}
-			}, busy ? "…" : "🗑");
-		}
 
 		// ------------------------------------------------------------- row ⋮ menu item
 
@@ -246,28 +205,11 @@ window.__ModuleLoader__.load({
 
 		function apply(ctx) {
 			log("apply");
-			// Menu augmentation first: independent of the slot machinery.
 			try {
+				ctx.effect(() => ctx.locale.register(NS, { zh, en }), "session-cleaner: locale");
 				installRowMenuAugmentation(ctx);
 			} catch (error) {
 				log("menu augmentation failed:", String(error?.message ?? error));
-			}
-			// Header action button (slot-based).
-			try {
-				ctx.effect(() => ctx.locale.register(NS, { zh, en }), "session-cleaner: locale");
-				ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
-					name: "conversation.session.header.actions",
-					id: "session-cleaner",
-					order: 90,
-					locale: NS,
-					inject: () => ({
-						onDeleted: async () => {
-							await ctx.sessions.refresh();
-						}
-					})
-				}, DeleteSessionAction));
-			} catch (error) {
-				log("header action failed:", String(error?.message ?? error));
 			}
 		}
 
