@@ -1,0 +1,6 @@
+# dsh-session-cleaner bundle patch: inserts the cleaner plugin row over the
+# dsh-base layer. The plugin registers one HTTP route on the webServer service:
+#   POST /api-ext/session.delete
+- insert:
+    - id: session-cleaner
+      name: 'dsh-session-cleaner'
