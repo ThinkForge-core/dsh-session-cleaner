@@ -9,11 +9,10 @@ The official web API only offers `workspace.archiveSession` (hide); there is no
 ## Install
 
 ```sh
-# from a local checkout
-dsh plugin --profile web add file:/path/to/dsh-session-cleaner
+dsh plugin --profile web add github:fountunt/dsh-session-cleaner
 
-# or from git once published
-dsh plugin --profile web add github:<owner>/dsh-session-cleaner
+# or from a local checkout
+dsh plugin --profile web add file:/path/to/dsh-session-cleaner
 ```
 
 Then restart `dsh web` (a running instance does not hot-load new bundles).
