@@ -6,23 +6,24 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { detachLiveStore, detachWorkspaces, disposeAgentFiber, removeArtifacts } from "../lib/index.js";
 
-test("disposeAgentFiber disposes the agent context (sync and async)", async () => {
-  let syncDisposed = false;
-  const syncAgent = { ctx: { dispose: () => { syncDisposed = true; } } };
+test("disposeAgentFiber unloads the agent fiber (sync and async)", async () => {
+  let syncUnloaded = false;
+  const syncAgent = { ctx: { fiber: { _unload: () => { syncUnloaded = true; } } } };
   assert.equal(await disposeAgentFiber(syncAgent), true);
-  assert.equal(syncDisposed, true);
+  assert.equal(syncUnloaded, true);
 
-  let asyncDisposed = false;
-  const asyncAgent = { ctx: { dispose: async () => { asyncDisposed = true; } } };
+  let asyncUnloaded = false;
+  const asyncAgent = { ctx: { fiber: { _unload: async () => { asyncUnloaded = true; } } } };
   assert.equal(await disposeAgentFiber(asyncAgent), true);
-  assert.equal(asyncDisposed, true);
+  assert.equal(asyncUnloaded, true);
 
-  // missing ctx / dispose -> false (caller refuses deletion)
+  // missing ctx / fiber / _unload -> false (caller refuses deletion)
   assert.equal(await disposeAgentFiber({}), false);
   assert.equal(await disposeAgentFiber({ ctx: {} }), false);
-  // throwing dispose -> false
+  assert.equal(await disposeAgentFiber({ ctx: { fiber: {} } }), false);
+  // throwing _unload -> false
   assert.equal(
-    await disposeAgentFiber({ ctx: { dispose: () => { throw new Error("boom"); } } }),
+    await disposeAgentFiber({ ctx: { fiber: { _unload: () => { throw new Error("boom"); } } } }),
     false,
   );
 });
