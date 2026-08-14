@@ -22,6 +22,16 @@ Then restart `dsh web` (a running instance does not hot-load new bundles).
 
 ## Usage
 
+### Web UI (v0.2.0+)
+
+The client half adds a **🗑 delete button** to the conversation header action
+area. Click it, confirm, and the session is deleted and the sidebar refreshes.
+The button is disabled while the session is running, and sessions with an
+attached agent are refused by the server — the current conversation can never
+be deleted.
+
+### API
+
 The plugin registers one route on the web server:
 
 ```http

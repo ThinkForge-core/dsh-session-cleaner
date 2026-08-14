@@ -18,6 +18,12 @@ dsh plugin --profile web add file:/path/to/dsh-session-cleaner
 
 ## 使用
 
+### Web UI（v0.2.0+）
+
+客户端部分会在对话头部操作区添加一个 **🗑 删除按钮**。点击确认后，会话被删除并刷新侧边栏。会话运行时按钮为禁用状态；有 agent 附着的会话会被服务器拒绝——当前对话永远无法被删除。
+
+### API
+
 插件在 Web 服务器上注册一个路由：
 
 ```http
