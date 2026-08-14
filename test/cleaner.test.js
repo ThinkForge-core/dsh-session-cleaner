@@ -4,7 +4,28 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { detachLiveStore, detachWorkspaces, removeArtifacts } from "../lib/index.js";
+import { detachLiveStore, detachWorkspaces, disposeAgentFiber, removeArtifacts } from "../lib/index.js";
+
+test("disposeAgentFiber disposes the agent context (sync and async)", async () => {
+  let syncDisposed = false;
+  const syncAgent = { ctx: { dispose: () => { syncDisposed = true; } } };
+  assert.equal(await disposeAgentFiber(syncAgent), true);
+  assert.equal(syncDisposed, true);
+
+  let asyncDisposed = false;
+  const asyncAgent = { ctx: { dispose: async () => { asyncDisposed = true; } } };
+  assert.equal(await disposeAgentFiber(asyncAgent), true);
+  assert.equal(asyncDisposed, true);
+
+  // missing ctx / dispose -> false (caller refuses deletion)
+  assert.equal(await disposeAgentFiber({}), false);
+  assert.equal(await disposeAgentFiber({ ctx: {} }), false);
+  // throwing dispose -> false
+  assert.equal(
+    await disposeAgentFiber({ ctx: { dispose: () => { throw new Error("boom"); } } }),
+    false,
+  );
+});
 
 test("detachLiveStore calls the entry detach disposer", () => {
   let detached = false;
