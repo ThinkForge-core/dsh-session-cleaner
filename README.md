@@ -1,5 +1,7 @@
 # dsh-session-cleaner
 
+[English](README.md) | [中文](README.zh.md)
+
 Delete DeepSeek Harness sessions from a **running** web runtime — files, live
 store, and workspace records — without restarting `dsh web`.
 
