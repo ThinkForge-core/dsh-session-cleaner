@@ -166,20 +166,13 @@ window.__ModuleLoader__.load({
 
 		/** Install the ⋮ menu augmentation. */
 		function installRowMenuAugmentation(ctx) {
-			// Last row whose ⋮ was clicked (fallback pairing for portaled menus).
-			let lastRow = null;
-			document.addEventListener("click", (event) => {
-				const target = event.target;
-				if (target instanceof Element) {
-					const row = target.closest('[role="treeitem"]');
-					if (row !== null) lastRow = row;
-				}
-			}, true);
-
 			const maybeAugment = (menuEl) => {
-				const rowEl = menuEl.closest('[role="treeitem"]') ?? lastRow;
+				// Only augment menus that actually live inside a session row
+				// ([role="treeitem"]). Other menus (model/permission selectors,
+				// etc.) must never receive the delete item.
+				const rowEl = menuEl.closest('[role="treeitem"]');
 				if (rowEl === null) {
-					log("menu without row", menuEl);
+					log("skip: menu outside a session row", menuEl);
 					return;
 				}
 				fetchSessionCatalog()
