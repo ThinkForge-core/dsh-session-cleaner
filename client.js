@@ -164,19 +164,53 @@ window.__ModuleLoader__.load({
 			menuEl.appendChild(item);
 		}
 
+		/** Rectangle distance between two DOM rects (0 when they overlap/touch). */
+		function rectDistance(a, b) {
+			const dx = Math.max(0, a.left - b.right, b.left - a.right);
+			const dy = Math.max(0, a.top - b.bottom, b.top - a.bottom);
+			return Math.hypot(dx, dy);
+		}
+
 		/** Install the ⋮ menu augmentation. */
 		function installRowMenuAugmentation(ctx) {
+			// The row ⋮ menu is rendered in a PORTAL (Menu portal: true), so it is
+			// never inside the session row. Record the last session-row click
+			// (tree rows use role="treeitem"; flat rows carry the hashed
+			// *sessionRow class) and pair an opened menu with that row only when
+			// the click was recent AND the menu is geometrically adjacent — other
+			// popups (model/permission selectors) fail both checks.
+			let lastRowClick = null;
+			document.addEventListener(
+				"click",
+				(event) => {
+					const target = event.target;
+					if (target instanceof Element) {
+						const row = target.closest('[role="treeitem"], [class*="sessionRow"]');
+						if (row !== null) lastRowClick = { row, at: Date.now() };
+					}
+				},
+				true,
+			);
+
+			const rowForMenu = (menuEl) => {
+				const inline = menuEl.closest('[role="treeitem"], [class*="sessionRow"]');
+				if (inline !== null) return { row: inline, source: "inline" };
+				const hit = lastRowClick;
+				if (hit === null) return null;
+				if (Date.now() - hit.at > 1500) return null;
+				const dist = rectDistance(menuEl.getBoundingClientRect(), hit.row.getBoundingClientRect());
+				if (dist > 80) return null;
+				return { row: hit.row, source: "portal" };
+			};
+
 			const maybeAugment = (menuEl) => {
-				// Only augment menus that actually live inside a session row
-				// ([role="treeitem"]). Other menus (model/permission selectors,
-				// etc.) must never receive the delete item.
-				const rowEl = menuEl.closest('[role="treeitem"]');
-				if (rowEl === null) {
-					log("skip: menu outside a session row", menuEl);
+				const match = rowForMenu(menuEl);
+				if (match === null) {
+					log("skip: menu not associated with a session row", menuEl);
 					return;
 				}
 				fetchSessionCatalog()
-					.then((c) => augmentMenu(menuEl, rowEl, c, ctx))
+					.then((c) => augmentMenu(menuEl, match.row, c, ctx))
 					.catch((error) => log("catalog failed:", String(error?.message ?? error)));
 			};
 			const observer = new MutationObserver((mutations) => {
