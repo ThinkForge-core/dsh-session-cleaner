@@ -2,11 +2,13 @@
 // session row ⋮ menu (v1.0.0; the v0.2.0 header button was removed).
 // Loaded by the web app's module loader as /plugins/dsh-session-cleaner/client.js.
 //
-// The row ⋮ menu is rendered by the upstream ui-workspace component with a
-// hardcoded item list and no public slot, so the client half augments the
-// opened menu in the DOM: it watches for [role="menu"], pairs it with its
-// session row ([role="treeitem"], with a click-capture fallback), resolves the
-// session id by matching the row title against the session list, and appends a
+// The row ⋮ menu is rendered by whichever session-list package the profile
+// mounts (the stock one or a drop-in replacement such as
+// dsh-multiroot-workspace) with a hardcoded item list and no public slot, so
+// the client half augments the opened menu in the DOM: it watches for
+// [role="menu"], pairs it with its session row ([role="treeitem"], with a
+// click-capture fallback), resolves the session id by matching the row title
+// against the injected sessions service list snapshot, and appends a
 // danger-styled delete item. Ambiguous titles skip injection for safety;
 // running sessions get a disabled item.
 window.__ModuleLoader__.load({
@@ -64,31 +66,21 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Fetch the visible session catalog (title -> [{id, running}]) through
-		 * the host RPC so the injected menu item can resolve a row's session id
-		 * from its title.
+		 * Build the visible session catalog (row title -> [{id, running}]) from
+		 * the injected sessions service. Its list snapshot is the same source the
+		 * sidebar rows render titles from, so resolving a row by its rendered
+		 * title needs no wire call and survives endpoint renames.
 		 */
-		async function fetchSessionCatalog() {
-			const res = await fetch("/api/session.list", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					type: "client-request",
-					rpcId: "session-cleaner-" + Math.random().toString(36).slice(2),
-					method: "session.list",
-					payload: {}
-				})
-			});
-			if (!res.ok) throw new Error("session.list HTTP " + res.status);
-			const body = await res.json();
-			const items = body?.result?.value?.items ?? [];
+		function sessionCatalog(ctx) {
+			const state = ctx.sessions.list.getSnapshot();
 			const catalog = new Map();
-			for (const item of items) {
-				if (item.blank || item.origin === "subagent") continue;
-				const title = item.projections?.values?.title;
+			for (const id of state.ids) {
+				const item = state.byId[id];
+				if (item === undefined || item.blank || item.origin === "subagent") continue;
+				const title = item.displayTitle;
 				if (typeof title !== "string" || title === "") continue;
 				if (!catalog.has(title)) catalog.set(title, []);
-				catalog.get(title).push({ id: item.sessionId, running: item.running === true });
+				catalog.get(title).push({ id: item.id, running: item.running === true });
 			}
 			log("catalog:", catalog.size, "titles");
 			return catalog;
@@ -209,9 +201,14 @@ window.__ModuleLoader__.load({
 					log("skip: menu not associated with a session row", menuEl);
 					return;
 				}
-				fetchSessionCatalog()
-					.then((c) => augmentMenu(menuEl, match.row, c, ctx))
-					.catch((error) => log("catalog failed:", String(error?.message ?? error)));
+				let catalog;
+				try {
+					catalog = sessionCatalog(ctx);
+				} catch (error) {
+					log("catalog failed:", String(error?.message ?? error));
+					return;
+				}
+				augmentMenu(menuEl, match.row, catalog, ctx);
 			};
 			const observer = new MutationObserver((mutations) => {
 				for (const mutation of mutations) {
