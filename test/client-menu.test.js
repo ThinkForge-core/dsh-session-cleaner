@@ -111,10 +111,11 @@ globalThis.MutationObserver = FakeMutationObserver;
 await import("../client.js");
 
 /** A row shaped like the session-list packages render it. */
-function row(title) {
+function row(title, sessionId) {
 	const el = new FakeElement("div");
 	el.setAttribute("class", "_1Jb0BW_sessionRow");
 	el.setAttribute("role", "treeitem");
+	if (sessionId !== undefined) el.setAttribute("data-session-id", sessionId);
 	const status = el.appendChild(new FakeElement("span"));
 	status.textContent = "";
 	const titleEl = el.appendChild(new FakeElement("span"));
@@ -174,7 +175,7 @@ test("running sessions get a disabled item", () => {
 	assert.equal(item.disabled, true);
 });
 
-test("blank, subagent, and duplicate titles stay out of the catalog", () => {
+test("duplicate titles stay out of the title fallback", () => {
 	const ctx = catalogCtx([
 		{ id: "s3", displayTitle: "Twice", running: false, blank: false },
 		{ id: "s4", displayTitle: "Twice", running: false, blank: false },
@@ -198,4 +199,72 @@ test("a menu opened without a recent row click is not augmented", () => {
 	menu.setAttribute("role", "menu");
 	ctx.__observer.emit([menu]);
 	assert.equal(menu.querySelector("[data-session-cleaner-menu]"), null);
+});
+
+test("a blank row resolves through its data-session-id, not its placeholder title", () => {
+	// What the row renders for a never-started session is the shared
+	// "New session" placeholder, while the sessions service reports the
+	// workspace name — title matching can never join the two. The id can.
+	const ctx = catalogCtx([
+		{ id: "blank-a", displayTitle: "Gits_to_compile", running: false, blank: true },
+		{ id: "blank-b", displayTitle: "Gits_to_compile", running: false, blank: true },
+	]);
+	globalThis.MutationObserver = class extends FakeMutationObserver {
+		constructor(callback) { super(callback); ctx.__observer = this; }
+	};
+	const menu = openMenuFor(ctx, row("New session", "blank-b"));
+	const item = menu.querySelector("[data-session-cleaner-menu]");
+	assert.notEqual(item, null, "blank rows must still get the delete item");
+	assert.equal(item.disabled, false);
+});
+
+test("the id path also resolves a live row missing from the list snapshot", () => {
+	const ctx = catalogCtx([]);
+	globalThis.MutationObserver = class extends FakeMutationObserver {
+		constructor(callback) { super(callback); ctx.__observer = this; }
+	};
+	const menu = openMenuFor(ctx, row("New session", "not-listed-yet"));
+	const item = menu.querySelector("[data-session-cleaner-menu]");
+	assert.notEqual(item, null, "an id the snapshot has not seen yet is still safe to offer");
+	assert.equal(item.disabled, false);
+});
+
+test("without data-session-id the title fallback still applies", () => {
+	const ctx = catalogCtx([{ id: "s8", displayTitle: "Fallback title", running: false, blank: false }]);
+	globalThis.MutationObserver = class extends FakeMutationObserver {
+		constructor(callback) { super(callback); ctx.__observer = this; }
+	};
+	const item = openMenuFor(ctx, row("Fallback title")).querySelector("[data-session-cleaner-menu]");
+	assert.notEqual(item, null);
+});
+
+test("a row with no actions menu gets its own delete button", () => {
+	// The blank-row case: dsh-multiroot-workspace renders no ⋮ for a blank row,
+	// so there is no menu to augment — the row button is the entry point.
+	const ctx = catalogCtx([{ id: "blank-c", displayTitle: "Gits_to_compile", running: false, blank: true }]);
+	globalThis.MutationObserver = class extends FakeMutationObserver {
+		constructor(callback) { super(callback); ctx.__observer = this; }
+	};
+	const rowEl = row("New session", "blank-c");
+	const exports = registration.factory(() => ({}));
+	body.children.length = 0;
+	body.appendChild(rowEl);
+	exports.apply(ctx);
+	const button = rowEl.querySelector("[data-session-cleaner-row]");
+	assert.notEqual(button, null, "a menu-less session row must get its own delete button");
+	assert.equal(button.getAttribute("aria-label"), "Delete session");
+});
+
+test("a row that renders its own actions menu gets no extra button", () => {
+	const ctx = catalogCtx([{ id: "s9", displayTitle: "Titled", running: false, blank: false }]);
+	globalThis.MutationObserver = class extends FakeMutationObserver {
+		constructor(callback) { super(callback); ctx.__observer = this; }
+	};
+	const rowEl = row("Titled", "s9");
+	rowEl.appendChild(new FakeElement("span")).setAttribute("class", "_1Jb0BW_rowActions");
+	const exports = registration.factory(() => ({}));
+	body.children.length = 0;
+	body.appendChild(rowEl);
+	exports.apply(ctx);
+	assert.equal(rowEl.querySelector("[data-session-cleaner-row]"), null, "the menu path owns non-blank rows");
 });

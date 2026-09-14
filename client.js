@@ -1,5 +1,6 @@
 // dsh-session-cleaner client half: a "delete" item appended to the sidebar
-// session row ⋮ menu (v1.0.0; the v0.2.0 header button was removed).
+// session row ⋮ menu (v1.0.0; the v0.2.0 header button was removed), plus a
+// delete button of its own on rows that render no menu (v1.0.4).
 // Loaded by the web app's module loader as /plugins/dsh-session-cleaner/client.js.
 //
 // The row ⋮ menu is rendered by whichever session-list package the profile
@@ -7,10 +8,21 @@
 // dsh-multiroot-workspace) with a hardcoded item list and no public slot, so
 // the client half augments the opened menu in the DOM: it watches for
 // [role="menu"], pairs it with its session row ([role="treeitem"], with a
-// click-capture fallback), resolves the session id by matching the row title
-// against the injected sessions service list snapshot, and appends a
-// danger-styled delete item. Ambiguous titles skip injection for safety;
-// running sessions get a disabled item.
+// click-capture fallback), resolves the session, and appends a danger-styled
+// delete item. Resolution prefers the row's own `data-session-id` contract
+// (published by dsh-multiroot-workspace), which is the only reliable handle on
+// a blank row — a session whose log never got written and whose rendered title
+// is a shared placeholder; when the attribute is absent it falls back to
+// matching the row title against the injected sessions service list snapshot,
+// where ambiguous titles skip injection for safety. Running sessions get a
+// disabled item.
+//
+// A blank row renders NO menu at all (dsh-multiroot-workspace hides the row
+// verbs on a contentless placeholder), so for a session row that carries a
+// `data-session-id` but no actions menu the client half injects its own 🗑
+// button into the row. That closes the one gap a menu-only design cannot: a
+// session that failed to start is the row most likely to need deleting, and it
+// was the one row with no menu to append to.
 window.__ModuleLoader__.load({
 	id: "dsh-session-cleaner",
 	factory: (require) => {
@@ -46,6 +58,9 @@ window.__ModuleLoader__.load({
 		// ------------------------------------------------------------- row ⋮ menu item
 
 		const MENU_MARKER = "data-session-cleaner-menu";
+		// Rows whose package renders no actions menu at all (a blank "New session"
+		// row hides its verbs) get a delete button of our own, marked by this.
+		const ROW_BUTTON_MARKER = "data-session-cleaner-row";
 
 		/** POST the session delete endpoint; throws with the server's message on failure. */
 		async function deleteSessionViaApi(sessionId) {
@@ -59,6 +74,18 @@ window.__ModuleLoader__.load({
 			return body.value;
 		}
 
+		/** Confirm, delete, refresh — the one flow behind both entry points. */
+		async function deleteSession(sessionId, ctx, dict) {
+			if (!window.confirm(dict.confirm)) return;
+			try {
+				await deleteSessionViaApi(sessionId);
+				log("deleted", sessionId);
+				await ctx.sessions.refresh();
+			} catch (error) {
+				window.alert(dict.failed + (error instanceof Error ? error.message : String(error)));
+			}
+		}
+
 		/** Current UI language, used for the DOM-injected menu item text. */
 		function uiLang() {
 			const lang = document.documentElement.lang || navigator.language || "en";
@@ -66,42 +93,68 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Build the visible session catalog (row title -> [{id, running}]) from
-		 * the injected sessions service. Its list snapshot is the same source the
-		 * sidebar rows render titles from, so resolving a row by its rendered
-		 * title needs no wire call and survives endpoint renames.
+		 * Build the visible session catalog from the injected sessions service.
+		 * Its list snapshot is the same source the sidebar rows render titles
+		 * from, so resolving a row by its rendered title needs no wire call and
+		 * survives endpoint renames.
+		 *
+		 * Two indexes are returned:
+		 *   - `byId`: every listed session id (INCLUDING blank ones) -> {id, running}.
+		 *     Blank sessions — a row whose log never got written (a session that
+		 *     failed to start) — are exactly the rows a user wants gone, and they
+		 *     are the ones whose rendered title is a shared placeholder, so the id
+		 *     index is the only reliable handle on them.
+		 *   - `catalog`: rendered title -> [{id, running}], the fallback for rows
+		 *     that carry no `data-session-id` (e.g. a sidebar package that does
+		 *     not publish the id contract).
 		 */
 		function sessionCatalog(ctx) {
 			const state = ctx.sessions.list.getSnapshot();
 			const catalog = new Map();
+			const byId = new Map();
 			for (const id of state.ids) {
 				const item = state.byId[id];
-				if (item === undefined || item.blank || item.origin === "subagent") continue;
+				if (item === undefined || item.origin === "subagent") continue;
+				const entry = { id: item.id, running: item.running === true };
+				byId.set(item.id, entry);
 				const title = item.displayTitle;
-				if (typeof title !== "string" || title === "") continue;
+				if (item.blank || typeof title !== "string" || title === "") continue;
 				if (!catalog.has(title)) catalog.set(title, []);
-				catalog.get(title).push({ id: item.id, running: item.running === true });
+				catalog.get(title).push(entry);
 			}
-			log("catalog:", catalog.size, "titles");
-			return catalog;
+			log("catalog:", byId.size, "sessions,", catalog.size, "titles");
+			return { catalog, byId };
 		}
 
-		/** Resolve the row's session: the row's title text must match exactly one session. */
-		function resolveSession(rowEl, catalog) {
+		/**
+		 * Resolve the row's session. The stable path is the rows' own
+		 * `data-session-id` contract (published by dsh-multiroot-workspace): it
+		 * names the session exactly, works for blank rows whose rendered title is
+		 * a shared placeholder, and needs no uniqueness check. When the attribute
+		 * is absent, fall back to matching the row's title text against exactly
+		 * one listed session.
+		 */
+		function resolveSession(rowEl, index) {
+			const id = rowEl.getAttribute("data-session-id");
+			if (typeof id === "string" && id !== "") {
+				// A live row can outrun the list snapshot; the server refuses a
+				// running session anyway, so an unknown id is safe to offer.
+				return index.byId.get(id) ?? { id, running: false };
+			}
 			const spans = rowEl.querySelectorAll("span");
 			for (const span of spans) {
 				const text = span.textContent?.trim() ?? "";
 				if (text === "") continue;
-				const entries = catalog.get(text);
+				const entries = index.catalog.get(text);
 				if (entries !== undefined && entries.length === 1) return entries[0];
 			}
 			return undefined;
 		}
 
 		/** Append the delete item to an open row menu. */
-		function augmentMenu(menuEl, rowEl, catalog, ctx) {
+		function augmentMenu(menuEl, rowEl, index, ctx) {
 			if (menuEl.querySelector(`[${MENU_MARKER}]`) !== null) return;
-			const session = resolveSession(rowEl, catalog);
+			const session = resolveSession(rowEl, index);
 			if (session === undefined) {
 				log("skip: cannot resolve session for row", rowEl);
 				return;
@@ -144,16 +197,79 @@ window.__ModuleLoader__.load({
 				event.preventDefault();
 				event.stopPropagation();
 				if (running) return;
-				if (!window.confirm(dict.confirm)) return;
-				try {
-					await deleteSessionViaApi(session.id);
-					log("deleted", session.id);
-					await ctx.sessions.refresh();
-				} catch (error) {
-					window.alert(dict.failed + (error instanceof Error ? error.message : String(error)));
-				}
+				await deleteSession(session.id, ctx, dict);
 			});
 			menuEl.appendChild(item);
+		}
+
+		/**
+		 * Give a session row a delete button of its own when the sidebar renders no
+		 * actions menu for it. This is the blank-row case: dsh-multiroot-workspace
+		 * hides the ⋮ on a "New session" placeholder (nothing to rename/fork/archive
+		 * yet), so there is no menu for {@link augmentMenu} to append to — and a
+		 * session that never started is exactly the one a user wants to remove. The
+		 * row's `data-session-id` is the only reliable identity there, since every
+		 * blank row renders the same placeholder title.
+		 */
+		function ensureRowDeleteButton(rowEl, ctx) {
+			if (rowEl.querySelector(`[${ROW_BUTTON_MARKER}]`) !== null) return;
+			// A row that already renders its actions menu goes through the menu path.
+			if (rowEl.querySelector('[class*="rowActions"]') !== null) return;
+			const sessionId = rowEl.getAttribute("data-session-id");
+			if (typeof sessionId !== "string" || sessionId === "") return;
+			const dict = uiLang() === "zh" ? zh : en;
+			const button = document.createElement("button");
+			button.type = "button";
+			button.setAttribute(ROW_BUTTON_MARKER, "1");
+			button.setAttribute("aria-label", dict.delete);
+			button.title = dict.delete;
+			button.textContent = "🗑";
+			button.style.cssText = [
+				"flex:none",
+				"display:inline-flex",
+				"align-items:center",
+				"justify-content:center",
+				"width:20px",
+				"height:20px",
+				"padding:0",
+				"border:none",
+				"border-radius:4px",
+				"background:none",
+				"color:var(--dsw-alias-label-tertiary, #9aa0a6)",
+				"font-size:12px",
+				"line-height:1",
+				"cursor:pointer",
+				"opacity:0"
+			].join(";");
+			// Match the ⋮ reveal: the button shows on row hover/focus, not before.
+			button.addEventListener("mouseenter", () => {
+				button.style.color = "var(--dsw-alias-danger, #e5484d)";
+			});
+			button.addEventListener("mouseleave", () => {
+				button.style.color = "var(--dsw-alias-label-tertiary, #9aa0a6)";
+			});
+			rowEl.addEventListener("mouseenter", () => { button.style.opacity = "1"; });
+			rowEl.addEventListener("mouseleave", () => { button.style.opacity = "0"; });
+			button.addEventListener("mousedown", (event) => { event.stopPropagation(); });
+			button.addEventListener("click", async (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				await deleteSession(sessionId, ctx, dict);
+			});
+			rowEl.appendChild(button);
+			log("row delete button for", sessionId);
+		}
+
+		/** Ensure every session row without an actions menu carries a delete button. */
+		function sweepRowDeleteButtons(ctx) {
+			let rows;
+			try {
+				rows = document.querySelectorAll("[data-session-id]");
+			} catch (error) {
+				log("row sweep failed:", String(error?.message ?? error));
+				return;
+			}
+			for (const row of rows) ensureRowDeleteButton(row, ctx);
 		}
 
 		/** Rectangle distance between two DOM rects (0 when they overlap/touch). */
@@ -163,7 +279,7 @@ window.__ModuleLoader__.load({
 			return Math.hypot(dx, dy);
 		}
 
-		/** Install the ⋮ menu augmentation. */
+		/** Install the ⋮ menu augmentation and the blank-row delete button. */
 		function installRowMenuAugmentation(ctx) {
 			// The row ⋮ menu is rendered in a PORTAL (Menu portal: true), so it is
 			// never inside the session row. Record the last session-row click
@@ -201,28 +317,35 @@ window.__ModuleLoader__.load({
 					log("skip: menu not associated with a session row", menuEl);
 					return;
 				}
-				let catalog;
+				let index;
 				try {
-					catalog = sessionCatalog(ctx);
+					index = sessionCatalog(ctx);
 				} catch (error) {
 					log("catalog failed:", String(error?.message ?? error));
 					return;
 				}
-				augmentMenu(menuEl, match.row, catalog, ctx);
+				augmentMenu(menuEl, match.row, index, ctx);
 			};
 			const observer = new MutationObserver((mutations) => {
+				let added = false;
 				for (const mutation of mutations) {
 					for (const node of mutation.addedNodes) {
 						if (node.nodeType !== 1) continue;
+						added = true;
 						if (node.matches?.('[role="menu"]') === true) maybeAugment(node);
 						node.querySelectorAll?.('[role="menu"]').forEach(maybeAugment);
 					}
 				}
+				// React re-renders a row (and drops our button with it) on every
+				// list/status change; re-ensure on any insertion. The marker guard
+				// in ensureRowDeleteButton stops our own append from looping.
+				if (added) sweepRowDeleteButtons(ctx);
 			});
 			observer.observe(document.body, { childList: true, subtree: true });
 			document.querySelectorAll('[role="menu"]').forEach(maybeAugment);
-			log("menu observer installed");
-			ctx.effect(() => () => observer.disconnect(), "session-cleaner: menu observer");
+			sweepRowDeleteButtons(ctx);
+			log("menu and row-button observer installed");
+			ctx.effect(() => () => observer.disconnect(), "session-cleaner: row observer");
 		}
 
 		// ---------------------------------------------------------------------- entry

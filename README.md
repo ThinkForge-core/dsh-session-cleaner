@@ -22,11 +22,16 @@ Then restart `dsh web` (a running instance does not hot-load new bundles).
 
 ## Usage
 
-### Web UI (v1.0.0)
+### Web UI (v1.0.4)
 
 The client half adds a **🗑 "Delete session" item** at the bottom of the
-sidebar session row ⋮ menu — the item is skipped when the row title is
-ambiguous (duplicate titles).
+sidebar session row ⋮ menu. Rows that render no menu at all — a blank
+"New session" placeholder, i.e. a session whose start failed and whose log was
+never written — instead get a **🗑 button on the row itself** (revealed on
+hover). Both entry points resolve the session through the row's
+`data-session-id` attribute when the sidebar publishes it
+(`dsh-multiroot-workspace` does) and fall back to the row title otherwise; the
+title path is skipped when the title is ambiguous (duplicate titles).
 
 Click, confirm, and the session is deleted and the sidebar refreshes. The
 item is disabled (greyed) while the session is running; sessions opened in
